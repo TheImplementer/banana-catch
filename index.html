@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Banana Catch 🍌</title>
+<style>
+  :root { --accent: #f4d03f; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, #2c5f2d 0%, #4a8c3a 60%, #97c93d 100%);
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    user-select: none;
+  }
+  h1 { margin: 12px 0 4px; font-size: 28px; text-shadow: 0 2px 6px rgba(0,0,0,.3); }
+  #hud {
+    display: flex;
+    gap: 24px;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  #hud .miss { color: #ffb3b3; }
+  #wrap { position: relative; }
+  canvas {
+    background: linear-gradient(180deg, #aee6ff33, #ffffff11);
+    border: 3px solid #ffffff66;
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+    display: block;
+    touch-action: none;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(0,0,0,.45);
+    border-radius: 14px;
+    text-align: center;
+    padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h2 { margin: 0; font-size: 32px; }
+  #overlay p { margin: 0; max-width: 320px; line-height: 1.5; opacity: .95; }
+  button {
+    margin-top: 6px;
+    padding: 12px 28px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #2c5f2d;
+    background: var(--accent);
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,.3);
+    transition: transform .08s ease;
+  }
+  button:active { transform: scale(.95); }
+  .hint { font-size: 13px; opacity: .8; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>🍌 Banana Catch</h1>
+  <div id="hud">
+    <span>Score: <span id="score">0</span></span>
+    <span>Best: <span id="best">0</span></span>
+    <span class="miss">Lives: <span id="lives">❤️❤️❤️</span></span>
+  </div>
+  <div id="wrap">
+    <canvas id="game" width="480" height="560"></canvas>
+    <div id="overlay">
+      <h2>Banana Catch</h2>
+      <p>Move the basket to catch the falling bananas. Miss three and it's game over. Bananas speed up as your score climbs!</p>
+      <p style="font-size:14px">
+        🍌 Yellow = <b>1</b> &nbsp; 🟢 Green = <b>2</b> &nbsp; 🔴 Red = <b>3</b><br>
+        🔵 Blue = <b>4</b> &nbsp; ✨ Golden = <b>100!</b> &nbsp; 🌈 Rainbow = <b>2000!!</b><br>
+        <span style="opacity:.8">Rarer colors are worth more — the rainbow is legendary!</span><br>
+        <span style="color:#d9b47a">🤢 Rotten = <b>avoid it!</b> catching one slows your basket for 5s</span><br>
+        <span style="color:#9fe4f2">🦅 Falcon = catch it for a <b>10s shield</b> that blocks rotten bananas</span>
+      </p>
+      <button id="startBtn">Play</button>
+      <div class="hint">Move with mouse, touch, or ← → arrow keys</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const scoreEl = document.getElementById('score');
+  const bestEl  = document.getElementById('best');
+  const livesEl = document.getElementById('lives');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+
+  // Banana color variants: rarer colors are worth more points.
+  // color = base banana fill; weight = relative spawn chance.
+  const VARIANTS = [
+    { name: 'Yellow',  color: '#ffd633', points: 1,    weight: 50,  emoji: '🍌' },
+    { name: 'Green',   color: '#8cc83a', points: 2,    weight: 25,  emoji: '🟢' },
+    { name: 'Red',     color: '#ef5f3c', points: 3,    weight: 14,  emoji: '🔴' },
+    { name: 'Blue',    color: '#5b9dff', points: 4,    weight: 8,   emoji: '🔵' },
+    { name: 'Golden',  color: '#f4c20d', points: 100,  weight: 3,   emoji: '✨' },
+    { name: 'Rainbow', color: '#ff77e9', points: 2000, weight: 0.5, emoji: '🌈', rainbow: true },
+    { name: 'Rotten',  color: '#8a7f43', points: 0,    weight: 12,  emoji: '🤢', rotten: true },
+    { name: 'Falcon',  color: '#6d4b2f', points: 0,    weight: 6,   emoji: '🦅', falcon: true },
+  ];
+  const totalWeight = VARIANTS.reduce((s, v) => s + v.weight, 0);
+
+  function pickVariant() {
+    let r = Math.random() * totalWeight;
+    for (const v of VARIANTS) { if ((r -= v.weight) < 0) return v; }
+    return VARIANTS[0];
+  }
+
+  // Shift a #rrggbb hex toward white (amt>0) or black (amt<0), amt in -1..1.
+  function shade(hex, amt) {
+    const n = parseInt(hex.slice(1), 16);
+    const to = amt < 0 ? 0 : 255, t = Math.abs(amt);
+    const mix = c => Math.round(c + (to - c) * t);
+    const r = mix((n >> 16) & 255), g = mix((n >> 8) & 255), b = mix(n & 255);
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  // Build a crisp banana as an inline SVG, recolored per variant.
+  function bananaSVG(v) {
+    const dark = shade(v.color, -0.30);
+    const light = shade(v.color, 0.45);
+    let defs = '', fill = v.color, stroke = dark;
+    if (v.rainbow) {
+      defs = '<linearGradient id="rb" x1="0" y1="0" x2="1" y2="1">' +
+        ['#ff004d', '#ff9a00', '#ffee00', '#28d900', '#00b3ff', '#7a5cff']
+          .map((c, i, a) => `<stop offset="${i / (a.length - 1)}" stop-color="${c}"/>`).join('') +
+        '</linearGradient>';
+      fill = 'url(#rb)';
+      stroke = '#7a3d8f';
+    }
+    const spots = v.rotten ? `
+      <g fill="#3a2a10" opacity="0.55">
+        <ellipse cx="66" cy="46" rx="6" ry="5"/>
+        <ellipse cx="52" cy="66" rx="7" ry="6"/>
+        <circle cx="40" cy="80" r="4"/>
+        <circle cx="72" cy="60" r="3.5"/>
+      </g>` : '';
+    // crescent banana body, tips at top-right and bottom-left
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">' +
+      `<defs>${defs}</defs>` +
+      // stem
+      '<path d="M80 26 q-4 -12 6 -14 q10 -1 6 10" fill="none" stroke="#5b4326" stroke-width="6" stroke-linecap="round"/>' +
+      // body
+      `<path d="M88 22 C104 48 98 80 66 95 C51 102 32 100 23 90 C33 95 50 91 61 82 C86 63 90 41 81 24 C78 17 85 14 88 22 Z" ` +
+        `fill="${fill}" stroke="${stroke}" stroke-width="4" stroke-linejoin="round"/>` +
+      // outer highlight
+      `<path d="M84 30 C94 50 91 71 74 84 C84 66 86 45 79 30 Z" fill="${v.rainbow ? '#ffffff' : light}" opacity="0.55"/>` +
+      // belly shade
+      `<path d="M24 89 C41 92 57 84 67 74 C55 82 41 86 30 85 Z" fill="${dark}" opacity="0.30"/>` +
+      // bottom tip
+      '<circle cx="24" cy="90" r="4" fill="#4a3418"/>' +
+      spots +
+      '</svg>';
+  }
+
+  // A falcon power-up (bird of prey with spread wings), drawn as inline SVG.
+  function falconSVG() {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">' +
+      '<path d="M53 80 L60 106 L67 80 Z" fill="#4a3218"/>' +
+      '<path d="M58 60 C42 48 24 44 8 50 C22 56 38 64 50 74 C50 68 52 62 58 60 Z" fill="#6d4b2f" stroke="#3f2c16" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M62 60 C78 48 96 44 112 50 C98 56 82 64 70 74 C70 68 68 62 62 60 Z" fill="#6d4b2f" stroke="#3f2c16" stroke-width="2" stroke-linejoin="round"/>' +
+      '<g stroke="#3f2c16" stroke-width="1.3" opacity="0.5"><path d="M30 50 L40 62"/><path d="M44 49 L50 64"/><path d="M90 50 L80 62"/><path d="M76 49 L70 64"/></g>' +
+      '<ellipse cx="60" cy="66" rx="9" ry="21" fill="#7a5636"/>' +
+      '<ellipse cx="60" cy="64" rx="5.5" ry="13" fill="#d8b47a"/>' +
+      '<circle cx="60" cy="43" r="11" fill="#5f4128"/>' +
+      '<path d="M60 33 a11 11 0 0 1 0 20 Z" fill="#c9a066"/>' +
+      '<circle cx="56" cy="42" r="1.9" fill="#140d06"/><circle cx="64" cy="42" r="1.9" fill="#140d06"/>' +
+      '<path d="M60 47 q-5 2 -3 6 q3 -1 3 -3 q0 2 3 3 q2 -4 -3 -6 Z" fill="#f0b429"/>' +
+      '</svg>';
+  }
+
+  // Rasterize each variant's SVG into an <img> once; imgReady flips when all load.
+  let imgReady = false, loadedCount = 0;
+  const sprites = {}; // variant name -> HTMLImageElement
+  for (const v of VARIANTS) {
+    const img = new Image();
+    img.onload = () => { if (++loadedCount === VARIANTS.length) imgReady = true; };
+    img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(v.falcon ? falconSVG() : bananaSVG(v));
+    sprites[v.name] = img;
+  }
+
+  const basket = { w: 90, h: 58, x: W / 2 - 45, y: H - 70, targetX: W / 2 - 45 };
+  const BANANA = 46; // drawn size of falling banana
+  const NORMAL_SPEED = 2600; // basket follow speed (px/s) — feels instant
+  const SLOW_SPEED = 260;    // while slowed by a rotten banana
+  const SLOW_DURATION = 5;   // seconds
+  const SHIELD_DURATION = 10; // seconds of rotten-immunity from a falcon
+
+  let bananas = [];
+  let score = 0;
+  let caught = 0; // number of bananas caught — drives difficulty, not the point score
+  let slowTimer = 0; // seconds of "slowed" left after catching a rotten banana
+  let shieldTimer = 0; // seconds of falcon protection left (blocks rotten bananas)
+  let lives = 3;
+  let best = Number(localStorage.getItem('bananaBest') || 0);
+  let spawnTimer = 0;
+  let running = false;
+  let lastTime = 0;
+
+  bestEl.textContent = best;
+
+  function reset() {
+    bananas = [];
+    popups = [];
+    score = 0;
+    caught = 0;
+    slowTimer = 0;
+    shieldTimer = 0;
+    lives = 3;
+    spawnTimer = 0;
+    basket.x = W / 2 - basket.w / 2;
+    basket.targetX = basket.x;
+    updateHud();
+  }
+
+  function updateHud() {
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+    livesEl.textContent = '❤️'.repeat(lives) || '💀';
+  }
+
+  function spawnBanana() {
+    // Speed ramps gently with how many you've caught, and is capped so it never
+    // gets unplayable. Point value (e.g. golden = 100) no longer affects speed.
+    const speed = Math.min(90 + caught * 6, 320) + Math.random() * 40; // px/sec
+    const variant = pickVariant();
+    const isBird = !!variant.falcon; // the falcon glides upright; bananas tumble
+    bananas.push({
+      x: Math.random() * (W - BANANA),
+      y: -BANANA,
+      vy: speed,
+      rot: isBird ? 0 : Math.random() * Math.PI,
+      vr: isBird ? 0 : (Math.random() - 0.5) * 2,
+      variant: variant
+    });
+  }
+
+  function drawBanana(b) {
+    ctx.save();
+    ctx.translate(b.x + BANANA / 2, b.y + BANANA / 2);
+    ctx.rotate(b.rot);
+    const sprite = sprites[b.variant.name];
+    if (imgReady && sprite) {
+      // soft glow for the rarer, high-value bananas
+      if (b.variant.points >= 4) {
+        ctx.shadowColor = b.variant.color;
+        ctx.shadowBlur = 14;
+      }
+      ctx.drawImage(sprite, -BANANA / 2, -BANANA / 2, BANANA, BANANA);
+    } else {
+      ctx.font = BANANA + 'px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🍌', 0, 0);
+    }
+    ctx.restore();
+  }
+
+  // floating "+N" point popups
+  let popups = [];
+  function addPopup(x, y, text, color) {
+    popups.push({ x, y, text, color, life: 0.8 });
+  }
+
+  function drawBasket() {
+    const { x, y, w, h } = basket;
+    ctx.save();
+    // basket body
+    ctx.fillStyle = '#8a5a2b';
+    ctx.strokeStyle = '#5e3c1a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w - 12, y + h);
+    ctx.lineTo(x + 12, y + h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // rim
+    ctx.fillStyle = '#a9712f';
+    ctx.fillRect(x - 4, y - 8, w + 8, 12);
+    ctx.strokeRect(x - 4, y - 8, w + 8, 12);
+    // weave lines
+    ctx.strokeStyle = '#5e3c1a88';
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + (h / 4) * i);
+      ctx.lineTo(x + w - 6, y + (h / 4) * i);
+      ctx.stroke();
+    }
+    ctx.textAlign = 'center';
+    // "shielded" indicator: glowing cyan ring hugging the basket
+    if (shieldTimer > 0) {
+      ctx.strokeStyle = 'rgba(95, 208, 230, 0.9)';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#5fd0e6';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + h / 2, w / 2 + 12, h / 2 + 14, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.fillStyle = '#bfefff';
+      ctx.fillText('🛡️ ' + Math.ceil(shieldTimer) + 's', x + w / 2, y + h + 34);
+    }
+    // "slowed" indicator
+    if (slowTimer > 0) {
+      ctx.fillStyle = 'rgba(90, 130, 40, 0.45)'; // grimy green veil
+      ctx.fillRect(x - 4, y - 8, w + 8, h + 8);
+      ctx.font = '22px serif';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText('🐌', x + w / 2, y - 14);
+      ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Slowed ' + slowTimer.toFixed(1) + 's', x + w / 2, y + h + 20);
+    }
+    ctx.restore();
+  }
+
+  function tick(now) {
+    if (!running) return;
+    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    // spawn
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      spawnBanana();
+      spawnTimer = Math.max(0.55, 1.3 - caught * 0.02);
+    }
+
+    // tick down active effects
+    if (slowTimer > 0) slowTimer = Math.max(0, slowTimer - dt);
+    if (shieldTimer > 0) shieldTimer = Math.max(0, shieldTimer - dt);
+
+    // move basket toward its target position, capped (and slower while sludged)
+    const maxStep = (slowTimer > 0 ? SLOW_SPEED : NORMAL_SPEED) * dt;
+    const dx = basket.targetX - basket.x;
+    basket.x += Math.abs(dx) <= maxStep ? dx : Math.sign(dx) * maxStep;
+
+    // update bananas
+    for (let i = bananas.length - 1; i >= 0; i--) {
+      const b = bananas[i];
+      b.y += b.vy * dt;
+      b.rot += b.vr * dt;
+
+      // catch?
+      const caughtIt =
+        b.y + BANANA > basket.y + 4 &&
+        b.y + BANANA < basket.y + basket.h + 20 &&
+        b.x + BANANA - 8 > basket.x &&
+        b.x + 8 < basket.x + basket.w;
+
+      if (caughtIt) {
+        bananas.splice(i, 1);
+        if (b.variant.falcon) {
+          shieldTimer = SHIELD_DURATION; // falcon guards against rotten bananas
+          addPopup(b.x + BANANA / 2, basket.y, 'SHIELD! 🛡️', '#5fd0e6');
+        } else if (b.variant.rotten) {
+          if (shieldTimer > 0) {
+            addPopup(b.x + BANANA / 2, basket.y, 'BLOCKED 🛡️', '#5fd0e6');
+          } else {
+            slowTimer = SLOW_DURATION; // sludge! slow the basket down
+            addPopup(b.x + BANANA / 2, basket.y, 'SLOW! 🐌', '#c98a3a');
+          }
+        } else {
+          score += b.variant.points;
+          caught++;
+          addPopup(b.x + BANANA / 2, basket.y, '+' + b.variant.points,
+                   b.variant.color || '#fff3a0');
+        }
+        updateHud();
+        continue;
+      }
+      // missed (fell past bottom) — rotten bananas & the falcon are safe to let fall
+      if (b.y > H) {
+        bananas.splice(i, 1);
+        if (!b.variant.rotten && !b.variant.falcon) {
+          lives--;
+          updateHud();
+          if (lives <= 0) { gameOver(); return; }
+        }
+      }
+    }
+
+    // update popups
+    for (let i = popups.length - 1; i >= 0; i--) {
+      popups[i].life -= dt;
+      popups[i].y -= 40 * dt;
+      if (popups[i].life <= 0) popups.splice(i, 1);
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    bananas.forEach(drawBanana);
+    drawBasket();
+    // popups on top
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    for (const p of popups) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 0.8));
+      ctx.fillStyle = p.color;
+      ctx.strokeStyle = 'rgba(0,0,0,.4)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(p.text, p.x, p.y);
+      ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.restore();
+  }
+
+  function start() {
+    reset();
+    overlay.classList.add('hidden');
+    running = true;
+    lastTime = performance.now();
+    requestAnimationFrame(tick);
+  }
+
+  function gameOver() {
+    running = false;
+    if (score > best) {
+      best = score;
+      localStorage.setItem('bananaBest', best);
+    }
+    updateHud();
+    overlay.querySelector('h2').textContent = 'Game Over!';
+    overlay.querySelector('p').innerHTML =
+      'You scored <b>' + score + '</b> point' + (score === 1 ? '' : 's') +
+      ' from <b>' + caught + '</b> banana' + (caught === 1 ? '' : 's') +
+      '.<br>Best: <b>' + best + '</b>';
+    startBtn.textContent = 'Play Again';
+    overlay.classList.remove('hidden');
+  }
+
+  // ---- controls ----
+  function moveTo(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    const scale = W / rect.width;
+    let x = (clientX - rect.left) * scale - basket.w / 2;
+    basket.targetX = Math.max(0, Math.min(W - basket.w, x));
+  }
+
+  canvas.addEventListener('mousemove', e => running && moveTo(e.clientX));
+  canvas.addEventListener('touchmove', e => {
+    if (!running) return;
+    e.preventDefault();
+    moveTo(e.touches[0].clientX);
+  }, { passive: false });
+
+  const keys = {};
+  document.addEventListener('keydown', e => { keys[e.key] = true; });
+  document.addEventListener('keyup', e => { keys[e.key] = false; });
+  setInterval(() => {
+    if (!running) return;
+    const step = 18;
+    // nudge the target; the capped follow-movement applies the slow effect
+    if (keys['ArrowLeft'])  basket.targetX = Math.max(0, basket.targetX - step);
+    if (keys['ArrowRight']) basket.targetX = Math.min(W - basket.w, basket.targetX + step);
+  }, 16);
+
+  startBtn.addEventListener('click', start);
+
+  // initial paint
+  render();
+})();
+</script>
+</body>
+</html>
