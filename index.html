@@ -83,7 +83,7 @@
     <canvas id="game" width="480" height="560"></canvas>
     <div id="overlay">
       <h2>Banana Catch</h2>
-      <p>Move the basket to catch the falling bananas. Miss three and it's game over. Bananas speed up as your score climbs!</p>
+      <p>Move the basket to catch the falling bananas. You have <b>5 lives</b>, and each life absorbs <b>10 missed bananas</b> — so 50 misses and it's game over. Bananas speed up as you catch more!</p>
       <p style="font-size:14px">
         🍌 Yellow = <b>1</b> &nbsp; 🟢 Green = <b>2</b> &nbsp; 🔴 Red = <b>3</b><br>
         🔵 Blue = <b>4</b> &nbsp; ✨ Golden = <b>100!</b> &nbsp; 🌈 Rainbow = <b>2000!!</b><br>
@@ -207,13 +207,16 @@
   const SLOW_SPEED = 260;    // while slowed by a rotten banana
   const SLOW_DURATION = 5;   // seconds
   const SHIELD_DURATION = 10; // seconds of rotten-immunity from a falcon
+  const START_LIVES = 5;
+  const BANANAS_PER_LIFE = 10; // missed bananas a single life absorbs before it's lost
 
   let bananas = [];
   let score = 0;
   let caught = 0; // number of bananas caught — drives difficulty, not the point score
   let slowTimer = 0; // seconds of "slowed" left after catching a rotten banana
   let shieldTimer = 0; // seconds of falcon protection left (blocks rotten bananas)
-  let lives = 3;
+  let lives = START_LIVES;
+  let lifeBananas = BANANAS_PER_LIFE; // misses the current life can still absorb
   let best = Number(localStorage.getItem('bananaBest') || 0);
   let spawnTimer = 0;
   let running = false;
@@ -228,7 +231,8 @@
     caught = 0;
     slowTimer = 0;
     shieldTimer = 0;
-    lives = 3;
+    lives = START_LIVES;
+    lifeBananas = BANANAS_PER_LIFE;
     spawnTimer = 0;
     basket.x = W / 2 - basket.w / 2;
     basket.targetX = basket.x;
@@ -238,7 +242,9 @@
   function updateHud() {
     scoreEl.textContent = score;
     bestEl.textContent = best;
-    livesEl.textContent = '❤️'.repeat(lives) || '💀';
+    livesEl.textContent = lives > 0
+      ? '❤️'.repeat(lives) + ' (' + lifeBananas + '/' + BANANAS_PER_LIFE + ')'
+      : '💀';
   }
 
   function spawnBanana() {
@@ -400,9 +406,14 @@
       if (b.y > H) {
         bananas.splice(i, 1);
         if (!b.variant.rotten && !b.variant.falcon) {
-          lives--;
+          // each life absorbs BANANAS_PER_LIFE misses before it's lost
+          if (--lifeBananas <= 0) {
+            lives--;
+            addPopup(W / 2, basket.y - 40, 'LIFE LOST! 💔', '#ff8080');
+            if (lives <= 0) { updateHud(); gameOver(); return; }
+            lifeBananas = BANANAS_PER_LIFE;
+          }
           updateHud();
-          if (lives <= 0) { gameOver(); return; }
         }
       }
     }

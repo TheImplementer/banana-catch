@@ -6,7 +6,7 @@ A tiny, dependency-free arcade game in a single HTML file. Move the basket, catc
 
 ## How to play
 
-Move the basket with your **mouse**, **touch**, or the **← →** arrow keys. Catch bananas to score. Miss three good bananas and it's game over. Bananas fall faster and spawn quicker the more you catch.
+Move the basket with your **mouse**, **touch**, or the **← →** arrow keys. Catch bananas to score. You start with **5 lives**, and each life absorbs **10 missed bananas** — so you can miss 50 in total before it's game over. Bananas fall faster and spawn quicker the more you catch.
 
 ## What falls from the sky
 
