@@ -77,7 +77,7 @@
   <div id="hud">
     <span>Score: <span id="score">0</span></span>
     <span>Best: <span id="best">0</span></span>
-    <span class="miss">Lives: <span id="lives">❤️❤️❤️</span></span>
+    <span class="miss">Lives: <span id="lives"></span></span>
   </div>
   <div id="wrap">
     <canvas id="game" width="480" height="560"></canvas>
@@ -500,7 +500,8 @@
 
   startBtn.addEventListener('click', start);
 
-  // initial paint
+  // initial paint — populate the HUD so it matches the real starting state
+  updateHud();
   render();
 })();
 </script>
