@@ -250,7 +250,7 @@
   function spawnBanana() {
     // Speed ramps gently with how many you've caught, and is capped so it never
     // gets unplayable. Point value (e.g. golden = 100) no longer affects speed.
-    const speed = Math.min(90 + caught * 6, 320) + Math.random() * 40; // px/sec
+    const speed = Math.min(65 + caught * 3.5, 230) + Math.random() * 25; // px/sec
     const variant = pickVariant();
     const isBird = !!variant.falcon; // the falcon glides upright; bananas tumble
     bananas.push({
@@ -356,7 +356,7 @@
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       spawnBanana();
-      spawnTimer = Math.max(0.55, 1.3 - caught * 0.02);
+      spawnTimer = Math.max(0.8, 1.6 - caught * 0.012);
     }
 
     // tick down active effects
