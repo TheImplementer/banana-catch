@@ -20,8 +20,9 @@ Move the basket with your **mouse**, **touch**, or the **← →** arrow keys. C
 | 🌈 | Rainbow | 2000 | Legendary (~1 in 200) |
 | 🤢 | Rotten | 0 | **Avoid!** Catching one slows your basket for 5s |
 | 🦅 | Falcon | 0 | Grants a **10s shield** that blocks rotten bananas |
+| 💣 | Bomb | 0 | Destroys **every rotten banana** currently on screen |
 
-Rotten bananas and the falcon cost you nothing if you let them fall — only good bananas cost a life when missed.
+Rotten bananas, the falcon and the bomb cost you nothing if you let them fall — only good bananas count against a life when missed.
 
 ## Details
 

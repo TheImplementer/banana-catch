@@ -89,7 +89,8 @@
         🔵 Blue = <b>4</b> &nbsp; ✨ Golden = <b>100!</b> &nbsp; 🌈 Rainbow = <b>2000!!</b><br>
         <span style="opacity:.8">Rarer colors are worth more — the rainbow is legendary!</span><br>
         <span style="color:#d9b47a">🤢 Rotten = <b>avoid it!</b> catching one slows your basket for 5s</span><br>
-        <span style="color:#9fe4f2">🦅 Falcon = catch it for a <b>10s shield</b> that blocks rotten bananas</span>
+        <span style="color:#9fe4f2">🦅 Falcon = catch it for a <b>10s shield</b> that blocks rotten bananas</span><br>
+        <span style="color:#ffc48a">💣 Bomb = catch it to <b>destroy every rotten banana</b> on screen</span>
       </p>
       <button id="startBtn">Play</button>
       <div class="hint">Move with mouse, touch, or ← → arrow keys</div>
@@ -119,6 +120,7 @@
     { name: 'Rainbow', color: '#ff77e9', points: 2000, weight: 0.5, emoji: '🌈', rainbow: true },
     { name: 'Rotten',  color: '#8a7f43', points: 0,    weight: 12,  emoji: '🤢', rotten: true },
     { name: 'Falcon',  color: '#6d4b2f', points: 0,    weight: 6,   emoji: '🦅', falcon: true },
+    { name: 'Bomb',    color: '#2b2e3a', points: 0,    weight: 5,   emoji: '💣', bomb: true },
   ];
   const totalWeight = VARIANTS.reduce((s, v) => s + v.weight, 0);
 
@@ -191,13 +193,34 @@
       '</svg>';
   }
 
+  // A bomb power-up (lit fuse), drawn as inline SVG.
+  function bombSVG() {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">' +
+      '<defs><radialGradient id="bg" cx="0.35" cy="0.3" r="0.8">' +
+      '<stop offset="0" stop-color="#5c5f70"/><stop offset="0.55" stop-color="#2b2e3a"/><stop offset="1" stop-color="#15171f"/>' +
+      '</radialGradient></defs>' +
+      '<path d="M74 34 C86 26 92 34 88 42 C84 50 94 52 100 44" fill="none" stroke="#8a6a3a" stroke-width="4" stroke-linecap="round"/>' +
+      '<circle cx="101" cy="43" r="7" fill="#ffd34d" opacity="0.9"/><circle cx="101" cy="43" r="4" fill="#fff3b0"/>' +
+      '<g stroke="#ff9a3c" stroke-width="2.2" stroke-linecap="round"><path d="M101 30 v-6"/><path d="M111 36 l5 -4"/><path d="M112 48 l6 2"/><path d="M91 33 l-4 -5"/></g>' +
+      '<rect x="64" y="28" width="16" height="14" rx="3" fill="#3a3d49" stroke="#15171f" stroke-width="2" transform="rotate(18 72 35)"/>' +
+      '<circle cx="56" cy="70" r="32" fill="url(#bg)" stroke="#0e1016" stroke-width="2.5"/>' +
+      '<ellipse cx="44" cy="56" rx="11" ry="8" fill="#ffffff" opacity="0.28" transform="rotate(-30 44 56)"/>' +
+      '</svg>';
+  }
+
+  function spriteSVG(v) {
+    if (v.falcon) return falconSVG();
+    if (v.bomb) return bombSVG();
+    return bananaSVG(v);
+  }
+
   // Rasterize each variant's SVG into an <img> once; imgReady flips when all load.
   let imgReady = false, loadedCount = 0;
   const sprites = {}; // variant name -> HTMLImageElement
   for (const v of VARIANTS) {
     const img = new Image();
     img.onload = () => { if (++loadedCount === VARIANTS.length) imgReady = true; };
-    img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(v.falcon ? falconSVG() : bananaSVG(v));
+    img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(spriteSVG(v));
     sprites[v.name] = img;
   }
 
@@ -207,6 +230,7 @@
   const SLOW_SPEED = 260;    // while slowed by a rotten banana
   const SLOW_DURATION = 5;   // seconds
   const SHIELD_DURATION = 10; // seconds of rotten-immunity from a falcon
+  const FLASH_DURATION = 0.3; // seconds of screen flash when a bomb goes off
   const START_LIVES = 5;
   const BANANAS_PER_LIFE = 10; // missed bananas a single life absorbs before it's lost
 
@@ -215,6 +239,7 @@
   let caught = 0; // number of bananas caught — drives difficulty, not the point score
   let slowTimer = 0; // seconds of "slowed" left after catching a rotten banana
   let shieldTimer = 0; // seconds of falcon protection left (blocks rotten bananas)
+  let flashTimer = 0; // seconds left of the bomb's explosion flash
   let lives = START_LIVES;
   let lifeBananas = BANANAS_PER_LIFE; // misses the current life can still absorb
   let best = Number(localStorage.getItem('bananaBest') || 0);
@@ -231,6 +256,7 @@
     caught = 0;
     slowTimer = 0;
     shieldTimer = 0;
+    flashTimer = 0;
     lives = START_LIVES;
     lifeBananas = BANANAS_PER_LIFE;
     spawnTimer = 0;
@@ -252,13 +278,14 @@
     // gets unplayable. Point value (e.g. golden = 100) no longer affects speed.
     const speed = Math.min(65 + caught * 3.5, 230) + Math.random() * 25; // px/sec
     const variant = pickVariant();
-    const isBird = !!variant.falcon; // the falcon glides upright; bananas tumble
+    // power-ups stay upright so they're easy to read; bananas tumble
+    const upright = !!(variant.falcon || variant.bomb);
     bananas.push({
       x: Math.random() * (W - BANANA),
       y: -BANANA,
       vy: speed,
-      rot: isBird ? 0 : Math.random() * Math.PI,
-      vr: isBird ? 0 : (Math.random() - 0.5) * 2,
+      rot: upright ? 0 : Math.random() * Math.PI,
+      vr: upright ? 0 : (Math.random() - 0.5) * 2,
       variant: variant
     });
   }
@@ -362,6 +389,7 @@
     // tick down active effects
     if (slowTimer > 0) slowTimer = Math.max(0, slowTimer - dt);
     if (shieldTimer > 0) shieldTimer = Math.max(0, shieldTimer - dt);
+    if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - dt);
 
     // move basket toward its target position, capped (and slower while sludged)
     const maxStep = (slowTimer > 0 ? SLOW_SPEED : NORMAL_SPEED) * dt;
@@ -371,6 +399,7 @@
     // update bananas
     for (let i = bananas.length - 1; i >= 0; i--) {
       const b = bananas[i];
+      if (b.dead) continue; // blown up by a bomb this frame; swept below
       b.y += b.vy * dt;
       b.rot += b.vr * dt;
 
@@ -383,7 +412,20 @@
 
       if (caughtIt) {
         bananas.splice(i, 1);
-        if (b.variant.falcon) {
+        if (b.variant.bomb) {
+          // blow up every rotten banana currently on screen
+          let n = 0;
+          for (const o of bananas) {
+            if (o.variant.rotten && !o.dead) {
+              o.dead = true;
+              n++;
+              addPopup(o.x + BANANA / 2, o.y + BANANA / 2, '💥', '#ff9a3c');
+            }
+          }
+          flashTimer = FLASH_DURATION;
+          addPopup(b.x + BANANA / 2, basket.y,
+                   n ? 'BOOM! ' + n + ' rotten' : 'BOOM! 💥', '#ff9a3c');
+        } else if (b.variant.falcon) {
           shieldTimer = SHIELD_DURATION; // falcon guards against rotten bananas
           addPopup(b.x + BANANA / 2, basket.y, 'SHIELD! 🛡️', '#5fd0e6');
         } else if (b.variant.rotten) {
@@ -402,10 +444,10 @@
         updateHud();
         continue;
       }
-      // missed (fell past bottom) — rotten bananas & the falcon are safe to let fall
+      // missed (fell past bottom) — only real bananas cost you; hazards/power-ups don't
       if (b.y > H) {
         bananas.splice(i, 1);
-        if (!b.variant.rotten && !b.variant.falcon) {
+        if (!b.variant.rotten && !b.variant.falcon && !b.variant.bomb) {
           // each life absorbs BANANAS_PER_LIFE misses before it's lost
           if (--lifeBananas <= 0) {
             lives--;
@@ -417,6 +459,8 @@
         }
       }
     }
+    // sweep anything a bomb destroyed this frame
+    if (bananas.some(b => b.dead)) bananas = bananas.filter(b => !b.dead);
 
     // update popups
     for (let i = popups.length - 1; i >= 0; i--) {
@@ -433,6 +477,14 @@
     ctx.clearRect(0, 0, W, H);
     bananas.forEach(drawBanana);
     drawBasket();
+    // bomb blast flash
+    if (flashTimer > 0) {
+      ctx.save();
+      ctx.globalAlpha = (flashTimer / FLASH_DURATION) * 0.5;
+      ctx.fillStyle = '#ffb347';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
     // popups on top
     ctx.save();
     ctx.textAlign = 'center';
